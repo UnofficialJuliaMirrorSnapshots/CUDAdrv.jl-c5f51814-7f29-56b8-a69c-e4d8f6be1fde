@@ -1,23 +1,65 @@
-variables:
-  CI_IMAGE_TAG: 'cuda'
-
 include:
-  - 'https://raw.githubusercontent.com/JuliaGPU/gitlab-ci/master/templates/v4/common.yml'
-  - 'https://raw.githubusercontent.com/JuliaGPU/gitlab-ci/master/templates/v4/test_v0.7.yml'
-  - 'https://raw.githubusercontent.com/JuliaGPU/gitlab-ci/master/templates/v4/test_v1.0.yml'
-  - 'https://raw.githubusercontent.com/JuliaGPU/gitlab-ci/master/templates/v4/test_v1.1.yml'
-  - 'https://raw.githubusercontent.com/JuliaGPU/gitlab-ci/master/templates/v4/test_v1.2.yml'
-  - 'https://raw.githubusercontent.com/JuliaGPU/gitlab-ci/master/templates/v4/test_dev.yml'
-  - 'https://raw.githubusercontent.com/JuliaGPU/gitlab-ci/master/templates/v4/coverage_v1.1.yml'
-  - 'https://raw.githubusercontent.com/JuliaGPU/gitlab-ci/master/templates/v4/documentation_v1.1.yml'
+  - 'https://raw.githubusercontent.com/JuliaGPU/gitlab-ci/master/templates/v6.yml'
 
-test:dev:
+image: nvidia/cuda:latest
+
+
+# basic tests
+
+test:1.0:
+  extends:
+    - .julia:1.0
+    - .test
+
+test:1.1:
+  extends:
+    - .julia:1.1
+    - .test
+
+test:1.2:
+  extends:
+    - .julia:1.2
+    - .test
+
+test:1.3:
+  extends:
+    - .julia:1.3
+    - .test
+
+test:nightly:
+  extends:
+    - .julia:nightly
+    - .test
   allow_failure: true
+
+
+# reverse tests
+
+# NOTE: not using the Manifest (develop instead of instantiate) due to Pkg.jl#1423
+
+cudanative:
+  extends: .julia:1.2
+  script:
+    - julia -e 'using Pkg;
+                Pkg.develop(PackageSpec(path=pwd()));
+                Pkg.build();'
+    - julia -e 'using Pkg;
+                Pkg.add(PackageSpec(name="CUDAnative", rev="master"));
+                Pkg.test("CUDAnative");'
+  allow_failure: true
+
+
+# other tasks
 
 coverage:
-  allow_failure: true
-  only:
-    - master
+  extends:
+    - .julia:1.2
+    - .coverage
+
+documentation:
+  extends:
+    - .julia:1.2
+    - .documentation
 
 pages:
   stage: deploy

@@ -1,32 +1,8 @@
 module CUDAdrv
 
-using CUDAapi
-
 using CEnum
 
 using Printf
-using Libdl
-
-
-## discovery
-
-let
-    # NOTE: on macOS, the driver is part of the toolkit
-    toolkit_dirs = find_toolkit()
-
-    global const libcuda = find_cuda_library("cuda", toolkit_dirs)
-    if libcuda == nothing
-        error("Could not find CUDA driver library")
-    end
-    Base.include_dependency(libcuda)
-
-    @debug "Found CUDA at $libcuda"
-
-
-    # backwards-compatible flags
-
-    global const configured = true
-end
 
 
 ## source code includes
@@ -45,7 +21,6 @@ include("util.jl")
 
 # high-level wrappers
 include("version.jl")
-global const libcuda_version = version()
 include("devices.jl")
 include("context.jl")
 include(joinpath("context", "primary.jl"))
@@ -63,20 +38,36 @@ include("deprecated.jl")
 ## initialization
 
 function __init__()
-    if !ispath(libcuda) || version() != libcuda_version
-        cachefile = if VERSION >= v"1.3-"
-            Base.compilecache_path(Base.PkgId(CUDAdrv))
-        else
-            abspath(DEPOT_PATH[1], Base.cache_file_entry(Base.PkgId(CUDAdrv)))
-        end
-        rm(cachefile)
-        error("Your set-up changed, and CUDAdrv.jl needs to be reconfigured. Please load the package again.")
+    if ccall(:jl_generating_output, Cint, ()) == 1
+        # don't initialize when we, or any package that depends on us, is precompiling.
+        # this makes it possible to precompile on systems without CUDA,
+        # at the expense of using the packages in global scope.
+        return
     end
 
+    silent = parse(Bool, get(ENV, "CUDA_INIT_SILENT", "false"))
+    try
+        # compiler barrier to avoid *seeing* `ccall`s to unavailable libraries
+        Base.invokelatest(__hidden_init__)
+        @eval functional() = true
+    catch ex
+        # don't actually fail to keep the package loadable
+        silent || @error """CUDAdrv.jl failed to initialize; the package will not be functional.
+                            To silence this message, import with ENV["CUDA_INIT_SILENT"]=true,
+                            and be sure to inspect the value of CUDAdrv.functional().""" exception=(ex, catch_backtrace())
+        @eval functional() = false
+    end
+end
+
+function __hidden_init__()
     if haskey(ENV, "_") && basename(ENV["_"]) == "rr"
-        @warn "Running under rr, which is incompatible with CUDA; disabling initialization."
-    else
-        cuInit(0)
+        error("Running under rr, which is incompatible with CUDA")
+    end
+
+    cuInit(0)
+
+    if version() <= v"9"
+        @warn "CUDAdrv.jl only supports NVIDIA drivers for CUDA 9.0 or higher (yours is for CUDA $(version()))"
     end
 end
 

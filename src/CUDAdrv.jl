@@ -12,6 +12,7 @@ include("pointer.jl")
 const CUdeviceptr = CuPtr{Cvoid}
 
 # low-level wrappers
+const libcuda = Sys.iswindows() ? :nvcuda : :libcuda
 include("libcuda_common.jl")
 include("error.jl")
 include("libcuda.jl")
@@ -37,26 +38,25 @@ include("deprecated.jl")
 
 ## initialization
 
-function __init__()
-    if ccall(:jl_generating_output, Cint, ()) == 1
-        # don't initialize when we, or any package that depends on us, is precompiling.
-        # this makes it possible to precompile on systems without CUDA,
-        # at the expense of using the packages in global scope.
-        return
-    end
+const __initialized__ = Ref(false)
+functional() = __initialized__[]
 
-    silent = parse(Bool, get(ENV, "CUDA_INIT_SILENT", "false"))
+function __init__()
     try
-        # compiler barrier to avoid *seeing* `ccall`s to unavailable libraries
-        Base.invokelatest(__hidden_init__)
-        @eval functional() = true
+        # barrier to avoid compiling `ccall`s to unavailable libraries
+        inferencebarrier(__hidden_init__)()
+        __initialized__[] = true
     catch ex
         # don't actually fail to keep the package loadable
-        silent || @error """CUDAdrv.jl failed to initialize; the package will not be functional.
-                            To silence this message, import with ENV["CUDA_INIT_SILENT"]=true,
-                            and be sure to inspect the value of CUDAdrv.functional().""" exception=(ex, catch_backtrace())
-        @eval functional() = false
+        @debug("CUDAdrv.jl failed to initialize; the package will not be functional.",
+               exception=(ex, catch_backtrace()))
     end
+end
+
+if VERSION >= v"1.3.0-DEV.35"
+    using Base: inferencebarrier
+else
+    inferencebarrier(@nospecialize(x)) = Ref{Any}(x)[]
 end
 
 function __hidden_init__()

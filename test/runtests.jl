@@ -9,6 +9,8 @@ include("array.jl")
 
 include("pointer.jl")
 
+@test CUDAdrv.functional()
+
 @test length(devices()) > 0
 if length(devices()) > 0
     @test CuCurrentContext() == nothing
@@ -20,7 +22,7 @@ if length(devices()) > 0
             dev = newdev
         end
     end
-    @info "Testing using device $(name(dev))"
+    @info "Testing using device $(name(dev)) with capability $(capability(dev)) on CUDA driver $(CUDAdrv.version())"
 
     global ctx = CuContext(dev)
     @test CuCurrentContext() != nothing

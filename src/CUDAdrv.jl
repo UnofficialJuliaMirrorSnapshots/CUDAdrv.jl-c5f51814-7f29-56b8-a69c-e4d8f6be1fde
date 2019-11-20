@@ -1,5 +1,7 @@
 module CUDAdrv
 
+using CUDAapi
+
 using CEnum
 
 using Printf
@@ -42,32 +44,31 @@ const __initialized__ = Ref(false)
 functional() = __initialized__[]
 
 function __init__()
+    silent = parse(Bool, get(ENV, "JULIA_CUDA_SILENT", "false"))
+    verbose = parse(Bool, get(ENV, "JULIA_CUDA_VERBOSE", "false"))
+    precompiling = ccall(:jl_generating_output, Cint, ()) != 0
+
     try
-        # barrier to avoid compiling `ccall`s to unavailable libraries
-        inferencebarrier(__hidden_init__)()
+        if haskey(ENV, "_") && basename(ENV["_"]) == "rr"
+            error("Running under rr, which is incompatible with CUDA")
+        end
+
+        cuInit(0)
+
+        if version() <= v"9"
+            @warn "CUDAdrv.jl only supports NVIDIA drivers for CUDA 9.0 or higher (yours is for CUDA $(version()))"
+        end
+
         __initialized__[] = true
     catch ex
         # don't actually fail to keep the package loadable
-        @debug("CUDAdrv.jl failed to initialize; the package will not be functional.",
-               exception=(ex, catch_backtrace()))
-    end
-end
-
-if VERSION >= v"1.3.0-DEV.35"
-    using Base: inferencebarrier
-else
-    inferencebarrier(@nospecialize(x)) = Ref{Any}(x)[]
-end
-
-function __hidden_init__()
-    if haskey(ENV, "_") && basename(ENV["_"]) == "rr"
-        error("Running under rr, which is incompatible with CUDA")
-    end
-
-    cuInit(0)
-
-    if version() <= v"9"
-        @warn "CUDAdrv.jl only supports NVIDIA drivers for CUDA 9.0 or higher (yours is for CUDA $(version()))"
+        if !silent && !precompiling
+            if verbose
+                @error "CUDAdrv.jl failed to initialize" exception=(ex, catch_backtrace())
+            else
+                @info "CUDAdrv.jl failed to initialize, GPU functionality unavailable (set JULIA_CUDA_SILENT or JULIA_CUDA_VERBOSE to silence or expand this message)"
+            end
+        end
     end
 end
 
